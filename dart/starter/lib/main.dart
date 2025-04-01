@@ -115,7 +115,7 @@ Future<dynamic> main(final context) async {
     }, statusCode: statusCode);
 
   } catch (e) {
-    // Handle other unexpected errors
+    // Handle other unexpected errorss
     context.error('Generic Error updating labels for user $userId: ${e.toString()}');
     return context.res.json({
       'success': false,
