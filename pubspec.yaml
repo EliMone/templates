@@ -1,11 +1,15 @@
+# pubspec.yaml
+
 name: starter_template
 version: 1.0.0
 
 environment:
-  sdk: ^2.17.0
+  # sdk: ^2.17.0  <-- DELETE THIS LINE
+  sdk: '>=3.0.0 <4.0.0' # <-- ADD THIS LINE (Allows Dart 3.0 up to 4.0)
 
 dependencies:
   dart_appwrite: ^14.0.0
 
 dev_dependencies:
-  lints: ^2.0.0
+  lints: ^3.0.0 # Consider updating lints for Dart 3 compatibility too
+  # or ^2.0.0 might still work, but ^3.0.0 is current for Dart 3
