@@ -1,20 +1,28 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:convert'; // Needed for jsonDecode
+import 'dart:convert'; // Needed for jsonEncode
 import 'package:dart_appwrite/dart_appwrite.dart';
 
+// Uses context.res.send() FOR ALL RESPONSES - TESTING STEP 3
 Future<dynamic> main(final context) async {
   // --- Initialize Client ---
   final String apiKey = Platform.environment['APPWRITE_API_KEY'] ?? '';
   final String apiEndpoint = Platform.environment['APPWRITE_ENDPOINT'] ?? '';
   final String projectId = Platform.environment['APPWRITE_FUNCTION_PROJECT_ID'] ?? '';
 
+  final Map<String, String> jsonHeaders = {
+    'Content-Type': 'application/json; charset=utf-8'
+  };
+
   if (apiKey.isEmpty || apiEndpoint.isEmpty || projectId.isEmpty) {
     context.error('Configuration Error: Missing API Key, Endpoint, or Project ID.');
-    return context.res.json({
+    final responseData = {
       'success': false,
       'error': 'Function is not configured correctly.'
-    }, statusCode: 500);
+    };
+    final responseBody = jsonEncode(responseData);
+    context.log('Attempting response via send() [Config Error]: $responseBody');
+    return context.res.send(responseBody, statusCode: 500, headers: jsonHeaders);
   }
 
   final client = Client()
@@ -35,9 +43,10 @@ Future<dynamic> main(final context) async {
     context.log('Raw request body received: $requestBodyRaw');
     if (requestBodyRaw.isEmpty) {
       context.log('Request body is empty.');
-      return context.res.json(
-          {'success': false, 'error': 'Request body is empty'},
-          statusCode: 400);
+      final responseData = {'success': false, 'error': 'Request body is empty'};
+      final responseBody = jsonEncode(responseData);
+      context.log('Attempting response via send() [Empty Body]: $responseBody');
+      return context.res.send(responseBody, statusCode: 400, headers: jsonHeaders);
     }
     body = jsonDecode(requestBodyRaw);
     context.log('Parsed request body: $body');
@@ -46,17 +55,26 @@ Future<dynamic> main(final context) async {
     action = body['action'] as String?;
 
     if (userId == null || userId.isEmpty) {
-      return context.res.json({'success': false, 'error': 'Missing or empty "userId"'}, statusCode: 400);
+      context.log('Missing or empty "userId".');
+      final responseData = {'success': false, 'error': 'Missing or empty "userId"'};
+      final responseBody = jsonEncode(responseData);
+      context.log('Attempting response via send() [Missing UserID]: $responseBody');
+      return context.res.send(responseBody, statusCode: 400, headers: jsonHeaders);
     }
     if (action == null || action != 'makeAdmin') {
-      return context.res.json({'success': false, 'error': 'Missing or invalid action. Supported: "makeAdmin"'}, statusCode: 400);
+      context.log('Missing or invalid action. Received: $action');
+      final responseData = {'success': false, 'error': 'Missing or invalid action. Supported: "makeAdmin"'};
+      final responseBody = jsonEncode(responseData);
+      context.log('Attempting response via send() [Invalid Action]: $responseBody');
+      return context.res.send(responseBody, statusCode: 400, headers: jsonHeaders);
     }
 
   } catch (e, stackTrace) {
     context.error('Failed to parse request body: $e\nStackTrace: $stackTrace');
-    return context.res.json(
-          {'success': false, 'error': 'Invalid JSON format.', 'details': e.toString()},
-          statusCode: 400);
+    final responseData = {'success': false, 'error': 'Invalid JSON format.', 'details': e.toString()};
+    final responseBody = jsonEncode(responseData);
+    context.log('Attempting response via send() [JSON Parse Error]: $responseBody');
+    return context.res.send(responseBody, statusCode: 400, headers: jsonHeaders);
   }
 
   // --- Update User Labels ---
@@ -73,71 +91,64 @@ Future<dynamic> main(final context) async {
 
     if (alreadyAdmin) {
       context.log('User $userId already has the "admin" label.');
-      return context.res.json({
+      final responseData = {
         'success': true,
         'message': 'User already has the admin label.',
         'userId': userId,
         'labels': currentLabels,
-      });
+      };
+      final responseBody = jsonEncode(responseData);
+      context.log('Attempting response via send() [Already Admin]: $responseBody');
+      return context.res.send(responseBody, statusCode: 200, headers: jsonHeaders); // Use 200 OK
     }
 
-    // *** FIX: Define updatedLabelsList ***
     newLabelsSet.add('admin');
-    final List<String> updatedLabelsList = newLabelsSet.toList(); // <-- ADD THIS LINE BACK
+    final List<String> updatedLabelsList = newLabelsSet.toList();
     context.log('Prepared updated labels list: $updatedLabelsList');
 
     context.log('Attempting users.updateLabels for $userId...');
-    // *** Use the defined variable ***
-    await users.updateLabels(userId: userId, labels: updatedLabelsList); // <-- This line is now valid
+    await users.updateLabels(userId: userId, labels: updatedLabelsList);
     context.log('users.updateLabels call completed successfully for $userId.');
 
-
-    return context.res.json({
+    final responseData = {
         'success': true,
         'message': 'Admin label added successfully.',
         'userId': userId,
-        // *** Use the defined variable ***
-        'updatedLabels': updatedLabelsList, // <-- This line is now valid
-    });
+        'updatedLabels': updatedLabelsList,
+    };
+    final responseBody = jsonEncode(responseData);
+    context.log('Attempting response via send() [Success]: $responseBody');
+    return context.res.send(responseBody, statusCode: 200, headers: jsonHeaders); // Use 200 OK
 
   } on AppwriteException catch (e) {
     context.error('Appwrite Error updating labels for user $userId: [${e.code}] ${e.message} | Type: ${e.type} | Response: ${e.response}');
 
-    // *** FIX: Define statusCode and errorMessage ***
-    int statusCode = 500; // <-- ADD Default status code
-    String errorMessage = 'Failed to update user labels due to Appwrite error.'; // <-- ADD Default error message
+    int statusCode = 500;
+    String errorMessage = 'Failed to update user labels due to Appwrite error.';
 
-    if (e.code == 404) { // User not found
-        statusCode = 404;
-        errorMessage = 'User not found with ID: $userId';
-    } else if (e.code == 401) { // Permissions issue?
-        statusCode = 401; // Or 403 Forbidden depending on context
-        errorMessage = 'API Key lacks permission to update user labels.';
-    } else if (e.code == 400) { // Bad request (e.g., invalid label format)
-        statusCode = 400;
-        errorMessage = 'Bad request updating labels (check label format/content).';
-    }
-    // Add more specific Appwrite error code handling if needed
+    if (e.code == 404) { statusCode = 404; errorMessage = 'User not found with ID: $userId'; }
+    else if (e.code == 401) { statusCode = 401; errorMessage = 'API Key lacks permission to update user labels.'; }
+    else if (e.code == 400) { statusCode = 400; errorMessage = 'Bad request updating labels (check label format/content).'; }
 
-    final errorResponse = {
+    final responseData = {
         'success': false,
-        // *** Use the defined variable ***
-        'error': errorMessage, // <-- This line is now valid
+        'error': errorMessage,
         'details': e.message,
         'code': e.code
     };
-    context.log('Preparing to send Appwrite error response (Code: ${e.code})...');
-    // *** Use the defined variable ***
-    return context.res.json(errorResponse, statusCode: statusCode); // <-- This line is now valid
+    final responseBody = jsonEncode(responseData);
+    context.log('Attempting response via send() [Appwrite Error]: $responseBody');
+    return context.res.send(responseBody, statusCode: statusCode, headers: jsonHeaders);
 
   } catch (e, stackTrace) {
     context.error('Generic unexpected error updating labels for user $userId: ${e.toString()}\nStackTrace: ${stackTrace}');
-    final errorResponse = {
+    final responseData = {
       'success': false,
       'error': 'An unexpected internal server error occurred.',
       'details': e.toString()
     };
-    context.log('Preparing to send generic error response...');
-    return context.res.json(errorResponse, statusCode: 500);
+    final responseBody = jsonEncode(responseData);
+    context.log('Attempting response via send() [Generic Error]: $responseBody');
+    return context.res.send(responseBody, statusCode: 500, headers: jsonHeaders);
   }
 }
